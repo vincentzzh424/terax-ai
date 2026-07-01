@@ -413,6 +413,10 @@ configureRendererPool({
   isLeafVisible(leafId) {
     return sessions.get(leafId)?.visibleNow ?? false;
   },
+  leafCwd(leafId) {
+    const s = sessions.get(leafId);
+    return s?.lastCwd ?? s?.initialCwd ?? null;
+  },
   storeSnapshot(leafId, out) {
     const s = sessions.get(leafId);
     if (!s) return;

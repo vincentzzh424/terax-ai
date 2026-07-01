@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use std::{fs, io::Write};
 
@@ -134,6 +134,46 @@ pub fn fs_canonicalize(path: String, workspace: Option<WorkspaceEnv>) -> Result<
     let p = resolve_path(&path, &workspace);
     let canon = std::fs::canonicalize(&p).map_err(|e| e.to_string())?;
     Ok(super::to_canon(&canon))
+}
+
+/// Resolve a path the way an agent means it -- expand a leading `~`, join
+/// relative paths against the terminal's cwd, then canonicalize. Returns the
+/// canonical path only when it actually exists, so the terminal link detector
+/// can avoid linkifying regex matches that aren't real files.
+#[tauri::command]
+pub fn fs_resolve_existing(path: String, cwd: Option<String>) -> Option<String> {
+    let resolved = resolve_agent_path(&path, cwd);
+    std::fs::canonicalize(&resolved)
+        .ok()
+        .map(super::to_canon)
+}
+
+fn resolve_agent_path(path: &str, cwd: Option<String>) -> PathBuf {
+    let expanded = expand_tilde(path);
+    if expanded.is_absolute() {
+        return expanded;
+    }
+    match cwd {
+        Some(base) if Path::new(&base).is_absolute() => Path::new(&base).join(expanded),
+        _ => expanded,
+    }
+}
+
+#[cfg(unix)]
+fn expand_tilde(p: &str) -> PathBuf {
+    if let Some(rest) = p.strip_prefix('~') {
+        if let Ok(home) = std::env::var("HOME") {
+            if !home.is_empty() {
+                return Path::new(&home).join(rest.trim_start_matches('/'));
+            }
+        }
+    }
+    PathBuf::from(p)
+}
+
+#[cfg(not(unix))]
+fn expand_tilde(p: &str) -> PathBuf {
+    PathBuf::from(p)
 }
 
 #[tauri::command]

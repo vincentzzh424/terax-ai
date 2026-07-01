@@ -1,11 +1,9 @@
 import { resolveFontFamily } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
-import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, Terminal } from "@xterm/xterm";
 import { shouldCursorBlink } from "./cursorBlink";
@@ -18,6 +16,7 @@ import {
   terminalLineNavigationSequence,
   terminalWordNavigationSequence,
 } from "./keymap";
+import { makeTerminalLinkHandler, makeTerminalLinkProvider } from "./terminalLinks";
 
 export const POOL_MAX_SIZE = 5;
 const FIT_DEBOUNCE_MS = 8;
@@ -31,6 +30,9 @@ export type SlotAdapter = {
   isLeafBlocks(leafId: number): boolean;
   isLeafBusy(leafId: number): boolean;
   isLeafVisible(leafId: number): boolean;
+  // Terminal's last reported cwd (OSC 7) -- used to resolve relative paths in
+  // clicked file-path links.
+  leafCwd(leafId: number): string | null;
   storeSnapshot(leafId: number, out: SerializeOutput): void;
 };
 
@@ -203,9 +205,6 @@ function createSlot(): Slot {
   term.loadAddon(fitAddon);
   term.loadAddon(searchAddon);
   term.loadAddon(serializeAddon);
-  term.loadAddon(
-    new WebLinksAddon((_e, uri) => openUrl(uri).catch(console.error)),
-  );
 
   const host = document.createElement("div");
   host.style.cssText = "width:100%;height:100%;";
@@ -304,6 +303,18 @@ function createSlot(): Slot {
     if (leafId === null) return;
     adapter?.resolveLeaf(leafId)?.writeToPty(data);
   });
+
+  // Cmd/Ctrl+click to open http(s) URLs (browser) and local file paths (editor
+  // tab). The link provider regex-matches plain buffer text (paths validated
+  // against the leaf cwd so a match that isn't a real file isn't clickable);
+  // the link handler covers OSC 8 hyperlinks tools like Claude Code emit
+  // (blue file-path links that xterm styles but won't open without a handler).
+  const leafCwdFn = () => {
+    const id = slot.currentLeafId;
+    return id === null ? null : (adapter?.leafCwd(id) ?? null);
+  };
+  term.registerLinkProvider(makeTerminalLinkProvider(term, leafCwdFn));
+  term.options.linkHandler = makeTerminalLinkHandler(leafCwdFn);
 
   slots.push(slot);
   return slot;

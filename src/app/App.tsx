@@ -532,6 +532,17 @@ export default function App() {
     [openFileTab, newMarkdownTab],
   );
 
+  // Terminal cmd/ctrl-clickable file-path links dispatch this; resolve to the
+  // same open-file path the explorer uses.
+  useEffect(() => {
+    const onOpenFile = (e: Event) => {
+      const path = (e as CustomEvent<string>).detail;
+      if (typeof path === "string" && path) handleOpenFile(path);
+    };
+    window.addEventListener("terax:open-file", onOpenFile);
+    return () => window.removeEventListener("terax:open-file", onOpenFile);
+  }, [handleOpenFile]);
+
   const handlePathRenamed = useCallback(
     (from: string, to: string) => {
       for (const t of tabs) {
